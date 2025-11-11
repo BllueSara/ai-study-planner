@@ -59,7 +59,7 @@ const Home = () => {
               <div className="flex justify-end">
                 <button
                   onClick={() => navigate("/plan/new")}
-                  className="inline-flex items-center gap-3 rounded-2xl border border-white/20 bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] px-8 py-3 text-sm font-semibold text-white shadow-[0_15px_35px_rgba(99,102,241,0.4)] transition hover:-translate-y-0.5"
+                  className="inline-flex items-center gap-3 rounded-2xl border border-indigo-500/40 bg-indigo-600 px-8 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(79,70,229,0.25)] transition hover:-translate-y-0.5 hover:bg-indigo-500"
                 >
                   <span className="text-xl">+</span>
                   Add My Plan

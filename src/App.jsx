@@ -26,6 +26,23 @@ const TRACKS = [
   },
 ];
 
+const COMMUNITY_LINKS = [
+  {
+    id: "telegram-channel",
+    label: "Telegram Channel",
+    description: "Announcements, shared resources, and everything related to the program in one place.",
+    href: "https://t.me/Ice_KaustAI",
+    badge: "Resources",
+  },
+  {
+    id: "telegram-discussion",
+    label: "Discussion Group",
+    description: "Chat with others, ask questions, and get support directly from the community.",
+    href: "https://t.me/Ice_KaustAIChat",
+    badge: "Community",
+  },
+];
+
 const DEFAULT_TRACK_IDS = TRACKS.map((track) => track.id);
 const DAY_IN_MS = 1000 * 60 * 60 * 24;
 
@@ -84,6 +101,7 @@ const App = () => {
   const [modalTracks, setModalTracks] = useState(() => [...TRACKS]);
   const [modalError, setModalError] = useState("");
   const [toastMessage, setToastMessage] = useState("");
+  const [isSourcesOpen, setSourcesOpen] = useState(false);
 
   const trackModulesMap = useMemo(() => {
     const map = {};
@@ -460,6 +478,12 @@ const App = () => {
                 >
                   Restart
                 </button>
+                <button
+                  onClick={() => setSourcesOpen(true)}
+                  className="flex-1 rounded-2xl border border-indigo-500/40 bg-transparent px-5 py-3 text-sm font-semibold text-indigo-200 transition hover:border-indigo-400 hover:text-white sm:flex-none"
+                >
+                  Sources
+                </button>
               </div>
             </div>
           </header>
@@ -608,7 +632,7 @@ const App = () => {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-2xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] px-6 py-3 text-sm font-semibold text-white shadow-[0_15px_35px_rgba(99,102,241,0.4)] transition hover:scale-[1.01]"
+                  className="rounded-2xl border border-indigo-500/40 bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(79,70,229,0.25)] transition hover:-translate-y-0.5 hover:bg-indigo-500"
                 >
                   Save Custom Plan
                 </button>
@@ -630,6 +654,52 @@ const App = () => {
             >
               ✕
             </button>
+          </div>
+        </div>
+      )}
+
+      {isSourcesOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setSourcesOpen(false)} />
+          <div className="relative z-10 w-full max-w-2xl rounded-[28px] border border-indigo-900/40 bg-[#0B0B12] p-6 shadow-[0_40px_120px_rgba(3,3,7,0.85)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-indigo-300/70">Sources</p>
+                <h3 className="mt-1 text-2xl font-semibold text-white">Sources</h3>
+                <p className="mt-1 text-sm text-gray-400">Note: Everything related to the program lives here—announcements, resources, and contact links for support.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-white/10 px-3 py-1 text-gray-400 transition hover:border-white/40 hover:text-white"
+                onClick={() => setSourcesOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-6 space-y-4">
+              {COMMUNITY_LINKS.map((resource) => (
+                <a
+                  key={resource.id}
+                  href={resource.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex flex-col rounded-2xl border border-indigo-900/30 bg-[#0F0F1B]/80 p-5 transition hover:-translate-y-0.5 hover:border-indigo-500/40 hover:bg-[#1A1A2C]"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-2">
+                      <span className="inline-flex items-center rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.35em] text-indigo-200">
+                        {resource.badge}
+                      </span>
+                      <div>
+                        <p className="text-xl font-semibold text-white">{resource.label}</p>
+                        <p className="mt-1 text-sm text-gray-400">{resource.description}</p>
+                      </div>
+                    </div>
+                    <span className="text-indigo-300 transition group-hover:text-white">↗</span>
+                  </div>
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       )}

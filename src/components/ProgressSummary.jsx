@@ -12,10 +12,24 @@ const trackSummary = (plan = [], keyword) => {
     };
 };
 
+const resolveTrackLabel = (entry = {}) => {
+    const source = `${entry.course || ""} ${entry.phase || ""} ${entry.focus || ""}`.toLowerCase();
+    if (source.includes("mathematics") || source.includes("linear algebra") || source.includes("calculus") || source.includes("probability")) {
+        return "Mathematics";
+    }
+    if (source.includes("python")) {
+        return "Python";
+    }
+    if (source.includes("data science")) {
+        return "Data Science";
+    }
+    return null;
+};
+
 const buildCourseStats = (plan = []) => {
     const courseMap = new Map();
     plan.forEach((entry) => {
-        const label = entry.course || entry.phase || entry.focus;
+        const label = resolveTrackLabel(entry) || entry.phase || entry.course || entry.focus || "Custom";
         if (!label) return;
         if (!courseMap.has(label)) {
             courseMap.set(label, { total: 0, completed: 0 });
