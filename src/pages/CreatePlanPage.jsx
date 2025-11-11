@@ -107,7 +107,7 @@ const CreatePlanPage = () => {
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-[0.35em] text-indigo-200/70">Planner Lab</p>
               <h2 className="text-2xl font-semibold text-white">Create My KAUST Plan</h2>
-              <p className="text-sm text-gray-400">Same AI layout, but with your own courses and schedule.</p>
+
             </div>
             <button
               type="button"
@@ -126,7 +126,7 @@ const CreatePlanPage = () => {
                   type="text"
                   value={programName}
                   onChange={(event) => setProgramName(event.target.value)}
-                  placeholder="e.g., KAUST Robotics Journey"
+                  placeholder="e.g., Artificial Intelligence Specialization"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder:text-gray-500 focus:border-indigo-500 focus:outline-none"
                 />
               </label>
