@@ -135,24 +135,50 @@ const allocateTasksToDays = (tasks, totalDays) => {
   }
 
   // Verify all tasks are included (safety check)
+  // Use task identity based on course + lesson to track allocated tasks
+  const allocatedTaskKeys = new Set();
+  buckets.forEach((bucket) => {
+    bucket.forEach((task) => {
+      const taskKey = `${task.course}-${task.lesson}`;
+      allocatedTaskKeys.add(taskKey);
+    });
+  });
+
+  // Check if any tasks are missing and add them
+  tasks.forEach((task) => {
+    const taskKey = `${task.course}-${task.lesson}`;
+    if (!allocatedTaskKeys.has(taskKey)) {
+      // Add missing task to the first day with space, or last day if all are full
+      let added = false;
+      for (let dayIndex = 0; dayIndex < totalDays && !added; dayIndex += 1) {
+        buckets[dayIndex].push(task);
+        added = true;
+      }
+      if (!added && totalDays > 0) {
+        buckets[totalDays - 1].push(task);
+      }
+    }
+  });
+
+  // Final count verification
   const totalAllocated = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
   if (totalAllocated !== tasks.length) {
-    console.warn(`Task allocation mismatch: ${totalAllocated} allocated vs ${tasks.length} total tasks`);
-    // If there's a mismatch, ensure all remaining tasks are added
-    const allocatedIndices = new Set();
+    console.error(`CRITICAL: Task allocation failed! ${totalAllocated} allocated vs ${tasks.length} total tasks`);
+    // Emergency: add all remaining tasks to the last day
+    const finalAllocatedKeys = new Set();
     buckets.forEach((bucket) => {
       bucket.forEach((task) => {
-        const taskIndex = tasks.indexOf(task);
-        if (taskIndex !== -1) allocatedIndices.add(taskIndex);
+        finalAllocatedKeys.add(`${task.course}-${task.lesson}`);
       });
     });
     
-    // Add any unallocated tasks to the first available day
-    for (let i = 0; i < tasks.length; i += 1) {
-      if (!allocatedIndices.has(i)) {
-        buckets[0].push(tasks[i]);
+    tasks.forEach((task) => {
+      const taskKey = `${task.course}-${task.lesson}`;
+      if (!finalAllocatedKeys.has(taskKey)) {
+        buckets[totalDays - 1].push(task);
+        finalAllocatedKeys.add(taskKey);
       }
-    }
+    });
   }
 
   return buckets;
@@ -211,30 +237,37 @@ export const distributeTasks = (tasks, startDate, endDate, planId, programName) 
     });
   }
 
-  // Final verification: ensure all tasks are in the schedule
-  if (schedule.length < tasks.length) {
-    console.warn(`Schedule incomplete: ${schedule.length} entries vs ${tasks.length} tasks`);
-    // Add any missing tasks to the last day
-    const scheduledTaskIds = new Set(schedule.map((entry) => `${entry.course}-${entry.lesson}`));
+  // Final verification: ensure ALL tasks are in the schedule
+  const scheduledTaskKeys = new Set(schedule.map((entry) => `${entry.course}-${entry.lesson}`));
+  const missingTasks = tasks.filter((task) => {
+    const taskKey = `${task.course}-${task.lesson}`;
+    return !scheduledTaskKeys.has(taskKey);
+  });
+
+  if (missingTasks.length > 0) {
+    console.warn(`Schedule incomplete: ${schedule.length} entries vs ${tasks.length} tasks. Adding ${missingTasks.length} missing tasks.`);
+    // Add missing tasks to the last day to ensure nothing is lost
     const lastDayIndex = totalDays - 1;
     const lastDate = new Date(start.getTime() + lastDayIndex * DAY_IN_MS);
     const lastIso = lastDate.toISOString().split("T")[0];
     const lastLabel = lastDate.toLocaleString("en-US", { month: "short", day: "numeric" });
     
-    tasks.forEach((task, index) => {
-      const taskId = `${task.course}-${task.lesson}`;
-      if (!scheduledTaskIds.has(taskId)) {
-        schedule.push({
-          ...task,
-          id: `${planId || "plan"}-${lastIso}-missing-${index}`,
-          dateISO: lastIso,
-          date: lastLabel,
-          week: Math.floor(lastDayIndex / 7) + 1,
-          completed: false,
-          notes: task.notes || "",
-        });
-      }
+    missingTasks.forEach((task, index) => {
+      schedule.push({
+        ...task,
+        id: `${planId || "plan"}-${lastIso}-missing-${index}`,
+        dateISO: lastIso,
+        date: lastLabel,
+        week: Math.floor(lastDayIndex / 7) + 1,
+        completed: false,
+        notes: task.notes || "",
+      });
     });
+  }
+
+  // Final count check
+  if (schedule.length !== tasks.length) {
+    console.error(`CRITICAL: Schedule count mismatch! ${schedule.length} scheduled vs ${tasks.length} tasks`);
   }
 
   return schedule;
@@ -248,8 +281,24 @@ export const generateCustomPlan = ({ programName, courses, startDate, endDate, p
     modules: Math.max(1, Number(course.modules) || 1),
     id: course.id || generateId(`course-${index}`),
   }));
+  
+  // Create all modules from all courses
   const tasks = createModuleBank(normalizedCourses);
+  
+  // Log for debugging
+  const totalModules = normalizedCourses.reduce((sum, course) => sum + (course.included !== false ? Number(course.modules) || 1 : 0), 0);
+  console.log(`Generating plan: ${normalizedCourses.length} courses, ${totalModules} total modules, ${tasks.length} tasks created`);
+  
+  // Distribute all tasks across dates
   const entries = distributeTasks(tasks, startDate, endDate, finalId, cleanName);
+  
+  // Verify final count
+  if (entries.length !== tasks.length) {
+    console.error(`WARNING: Entry count mismatch! ${entries.length} entries vs ${tasks.length} tasks`);
+  } else {
+    console.log(`✓ All ${tasks.length} modules successfully distributed across ${entries.length} schedule entries`);
+  }
+  
   const summary = normalizedCourses.map((course) => course.name?.trim()).filter(Boolean).slice(0, 3).join(" • ");
 
   return {
