@@ -86,35 +86,80 @@ const createModuleBank = (courses) => {
   return tasks;
 };
 
-const distributeTasks = (tasks, startDate, endDate, planId, programName) => {
-  if (!tasks.length) return [];
+const allocateTasksToDays = (tasks, totalDays) => {
+  const buckets = Array.from({ length: totalDays }, () => []);
+  if (!tasks.length) return buckets;
+
+  if (totalDays === 1 || tasks.length === 1) {
+    buckets[0] = [...tasks];
+    return buckets;
+  }
+
+  let assigned = 0;
+  for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
+    const proportional = Math.round(((dayIndex + 1) * tasks.length) / totalDays);
+    let count = proportional - assigned;
+    if (dayIndex === totalDays - 1) {
+      count = tasks.length - assigned;
+    }
+    count = Math.max(0, count);
+
+    for (let step = 0; step < count && assigned < tasks.length; step += 1) {
+      buckets[dayIndex].push(tasks[assigned]);
+      assigned += 1;
+    }
+  }
+
+  return buckets;
+};
+
+const buildBufferEntry = ({ planId, iso, label, dayIndex, programName }) => {
+  const safeId = planId || "plan";
+  const safeName = programName || "Study Plan";
+  return {
+    id: `${safeId}-${iso}-buffer-${dayIndex}`,
+    dateISO: iso,
+    date: label,
+    week: Math.floor(dayIndex / 7) + 1,
+    focus: `${safeName} Flex`,
+    lesson: "Review / Catch-up",
+    course: safeName,
+    phase: "Flex Day",
+    completed: false,
+    notes: "Use this day to review, reflect, or prepare for the next modules.",
+    isBuffer: true,
+  };
+};
+
+export const distributeTasks = (tasks, startDate, endDate, planId, programName) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const totalDays = Math.max(1, Math.floor((end - start) / DAY_IN_MS) + 1);
-  const basePerDay = Math.floor(tasks.length / totalDays);
-  let remainder = tasks.length % totalDays;
   const schedule = [];
-  let taskIndex = 0;
+  const dayBuckets = allocateTasksToDays(tasks, totalDays);
 
   for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
     const currentDate = new Date(start.getTime() + dayIndex * DAY_IN_MS);
     const iso = currentDate.toISOString().split("T")[0];
     const label = currentDate.toLocaleString("en-US", { month: "short", day: "numeric" });
-    const taskCount = basePerDay + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder -= 1;
+    const tasksForDay = dayBuckets[dayIndex];
 
-    for (let slot = 0; slot < taskCount && taskIndex < tasks.length; slot += 1) {
-      const task = tasks[taskIndex++];
+    if (!tasksForDay.length) {
+      schedule.push(buildBufferEntry({ planId, iso, label, dayIndex, programName }));
+      continue;
+    }
+
+    tasksForDay.forEach((task, slot) => {
       schedule.push({
         ...task,
-        id: `${planId}-${iso}-${slot}`,
+        id: `${planId || "plan"}-${iso}-${slot}`,
         dateISO: iso,
         date: label,
         week: Math.floor(dayIndex / 7) + 1,
         completed: false,
-        notes: "",
+        notes: task.notes || "",
       });
-    }
+    });
   }
 
   return schedule;

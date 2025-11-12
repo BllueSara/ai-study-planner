@@ -3,7 +3,7 @@ import { STUDY_PLAN, MOTIVATIONAL_QUOTES } from "./data/studyPlan";
 import ProgressSummary from "./components/ProgressSummary";
 import StudyTracker from "./components/StudyTracker";
 import DailyActivity from "./components/DailyActivity";
-import { generateCustomPlan, loadPlans, savePlans } from "./utils/planUtils";
+import { distributeTasks, generateCustomPlan, loadPlans, savePlans } from "./utils/planUtils";
 
 const TRACKS = [
   {
@@ -320,40 +320,23 @@ const App = () => {
     });
   };
 
-  const createCustomPlanEntries = (modules, startISO, endISO) => {
+  const createCustomPlanEntries = (modules, startISO, endISO, planId, programName) => {
     if (!modules.length) return [];
-    const startDate = new Date(startISO);
-    const endDate = new Date(endISO);
-    const totalDays = Math.max(1, Math.floor((endDate - startDate) / DAY_IN_MS) + 1);
-    const basePerDay = Math.floor(modules.length / totalDays);
-    let remainder = modules.length % totalDays;
-    const schedule = [];
-    let moduleIndex = 0;
-
-    for (let dayIndex = 0; dayIndex < totalDays; dayIndex++) {
-      const date = new Date(startDate.getTime() + dayIndex * DAY_IN_MS);
-      const iso = date.toISOString().split("T")[0];
-      const dateLabel = date.toLocaleString("en-US", { month: "short", day: "numeric" });
-      const modulesToday = basePerDay + (remainder > 0 ? 1 : 0);
-      if (remainder > 0) remainder -= 1;
-
-      for (let slot = 0; slot < modulesToday && moduleIndex < modules.length; slot++) {
-        const module = modules[moduleIndex++];
-        const moduleId = module.id || `${module.focus}-${module.lesson}`;
-        schedule.push({
-          ...module,
-          id: `${iso}-${moduleId}-${slot}`,
-          dateISO: iso,
-          date: dateLabel,
-          week: Math.floor(dayIndex / 7) + 1,
-          phase: `${module.trackLabel} Track`,
-          completed: false,
-          notes: module.notes || "",
-        });
-      }
-    }
-
-    return schedule;
+    const safeProgramName = programName?.trim() || planMeta.programName || "KAUST Study Planner";
+    const sanitized = modules.map((module, index) => {
+      const baseLabel =
+        module.trackLabel ||
+        module.phase?.replace(/ track$/i, "") ||
+        module.course ||
+        module.focus ||
+        `Course ${index + 1}`;
+      return {
+        ...module,
+        phase: module.phase || `${baseLabel} Track`,
+        course: module.course || baseLabel,
+      };
+    });
+    return distributeTasks(sanitized, startISO, endISO, planId || "custom-plan", safeProgramName);
   };
 
   const handleCustomPlanSubmit = (event) => {
@@ -428,7 +411,14 @@ const App = () => {
       return;
     }
 
-    const customPlan = createCustomPlanEntries(modulesToSchedule, customStartDate, customEndDate);
+    const previewPlanId = customPlanId || "custom-plan-preview";
+    const customPlan = createCustomPlanEntries(
+      modulesToSchedule,
+      customStartDate,
+      customEndDate,
+      previewPlanId,
+      planMeta.programName,
+    );
     if (!customPlan.length) {
       setModalError("Unable to generate a schedule for the selected range.");
       return;
