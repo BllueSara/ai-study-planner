@@ -91,23 +91,27 @@ const allocateTasksToDays = (tasks, totalDays) => {
   if (!tasks.length) return buckets;
 
   if (totalDays === 1) {
+    // All tasks go on the single day
     buckets[0] = [...tasks];
     return buckets;
   }
 
-  // Distribute tasks across all days following the AI plan pattern:
-  // - If tasks >= days: each day gets at least one, remaining distributed proportionally
-  // - If tasks < days: distribute evenly with some days getting multiple tasks
-  let taskIndex = 0;
+  // CRITICAL: ALL tasks must be included - never delete or skip any modules
+  // Distribute all tasks across available days, allowing multiple tasks per day
+  // This ensures every module is included regardless of date range length
   
   if (tasks.length >= totalDays) {
-    // More tasks than days: ensure each day gets at least one, then distribute remainder
-    for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
+    // More or equal tasks than days: distribute all tasks evenly
+    // Each day gets at least one task, remaining tasks distributed round-robin
+    let taskIndex = 0;
+    
+    // First pass: give each day at least one task
+    for (let dayIndex = 0; dayIndex < totalDays && taskIndex < tasks.length; dayIndex += 1) {
       buckets[dayIndex].push(tasks[taskIndex]);
       taskIndex += 1;
     }
     
-    // Distribute remaining tasks round-robin style
+    // Second pass: distribute remaining tasks round-robin (ensures all tasks are included)
     while (taskIndex < tasks.length) {
       for (let dayIndex = 0; dayIndex < totalDays && taskIndex < tasks.length; dayIndex += 1) {
         buckets[dayIndex].push(tasks[taskIndex]);
@@ -115,34 +119,38 @@ const allocateTasksToDays = (tasks, totalDays) => {
       }
     }
   } else {
-    // Fewer tasks than days: distribute tasks as evenly as possible
-    // Each task will be assigned to a day, some days may have multiple tasks
-    // Calculate spacing to distribute evenly
+    // Fewer tasks than days: distribute all tasks evenly across the date range
+    // Calculate optimal spacing to spread tasks throughout the timeline
+    // All tasks are included, distributed logically across available days
     const spacing = totalDays / tasks.length;
     for (let i = 0; i < tasks.length; i += 1) {
-      const dayIndex = Math.floor(i * spacing);
+      // Distribute tasks evenly across the timeline
+      const dayIndex = Math.min(Math.floor(i * spacing), totalDays - 1);
       buckets[dayIndex].push(tasks[i]);
     }
     
-    // Ensure every day gets at least one task by filling empty days
-    // with the nearest task
-    for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
-      if (buckets[dayIndex].length === 0) {
-        // Find the nearest day with a task and use its first task
-        let nearestDay = dayIndex;
-        let minDistance = totalDays;
-        for (let j = 0; j < totalDays; j += 1) {
-          if (buckets[j].length > 0) {
-            const distance = Math.abs(j - dayIndex);
-            if (distance < minDistance) {
-              minDistance = distance;
-              nearestDay = j;
-            }
-          }
-        }
-        if (buckets[nearestDay].length > 0) {
-          buckets[dayIndex].push(buckets[nearestDay][0]);
-        }
+    // All tasks are now included - no duplication needed
+    // Some days may have multiple tasks, some may be empty - both are acceptable
+    // The key principle: ALL modules must be included, never deleted
+  }
+
+  // Verify all tasks are included (safety check)
+  const totalAllocated = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
+  if (totalAllocated !== tasks.length) {
+    console.warn(`Task allocation mismatch: ${totalAllocated} allocated vs ${tasks.length} total tasks`);
+    // If there's a mismatch, ensure all remaining tasks are added
+    const allocatedIndices = new Set();
+    buckets.forEach((bucket) => {
+      bucket.forEach((task) => {
+        const taskIndex = tasks.indexOf(task);
+        if (taskIndex !== -1) allocatedIndices.add(taskIndex);
+      });
+    });
+    
+    // Add any unallocated tasks to the first available day
+    for (let i = 0; i < tasks.length; i += 1) {
+      if (!allocatedIndices.has(i)) {
+        buckets[0].push(tasks[i]);
       }
     }
   }
@@ -180,21 +188,16 @@ export const distributeTasks = (tasks, startDate, endDate, planId, programName) 
     return schedule;
   }
 
+  // CRITICAL: Include ALL tasks - never skip or delete any modules
+  // Some days may have multiple modules, some days may be empty - both are acceptable
   for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
     const currentDate = new Date(start.getTime() + dayIndex * DAY_IN_MS);
     const iso = currentDate.toISOString().split("T")[0];
     const label = currentDate.toLocaleString("en-US", { month: "short", day: "numeric" });
     const tasksForDay = dayBuckets[dayIndex] || [];
 
-    // For custom plans, match AI plan structure: every day should have at least one module
-    // If allocation left a day empty (shouldn't happen with new logic, but safety check)
-    if (!tasksForDay.length && tasks.length > 0) {
-      // Distribute the last task or proportionally assign
-      const taskIndex = Math.min(Math.floor((dayIndex / totalDays) * tasks.length), tasks.length - 1);
-      tasksForDay.push(tasks[taskIndex]);
-    }
-
-    // Add all tasks for this day (following AI plan pattern where some days have multiple modules)
+    // Add ALL tasks for this day (can be 0, 1, 2, 3, 4, or more modules per day)
+    // This ensures every module is included in the schedule
     tasksForDay.forEach((task, slot) => {
       schedule.push({
         ...task,
@@ -205,6 +208,32 @@ export const distributeTasks = (tasks, startDate, endDate, planId, programName) 
         completed: false,
         notes: task.notes || "",
       });
+    });
+  }
+
+  // Final verification: ensure all tasks are in the schedule
+  if (schedule.length < tasks.length) {
+    console.warn(`Schedule incomplete: ${schedule.length} entries vs ${tasks.length} tasks`);
+    // Add any missing tasks to the last day
+    const scheduledTaskIds = new Set(schedule.map((entry) => `${entry.course}-${entry.lesson}`));
+    const lastDayIndex = totalDays - 1;
+    const lastDate = new Date(start.getTime() + lastDayIndex * DAY_IN_MS);
+    const lastIso = lastDate.toISOString().split("T")[0];
+    const lastLabel = lastDate.toLocaleString("en-US", { month: "short", day: "numeric" });
+    
+    tasks.forEach((task, index) => {
+      const taskId = `${task.course}-${task.lesson}`;
+      if (!scheduledTaskIds.has(taskId)) {
+        schedule.push({
+          ...task,
+          id: `${planId || "plan"}-${lastIso}-missing-${index}`,
+          dateISO: lastIso,
+          date: lastLabel,
+          week: Math.floor(lastDayIndex / 7) + 1,
+          completed: false,
+          notes: task.notes || "",
+        });
+      }
     });
   }
 
