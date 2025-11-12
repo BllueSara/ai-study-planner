@@ -1,36 +1,49 @@
 import React from "react";
 
-const trackSummary = (plan = [], keyword) => {
-    const normalized = keyword.toLowerCase();
-    const scoped = plan.filter((day) => day.phase?.toLowerCase().includes(normalized));
-    const completed = scoped.filter((day) => day.completed).length;
-    const total = scoped.length || 1;
-    return {
-        value: scoped.length ? Number(((completed / total) * 100).toFixed(1)) : 0,
-        completed,
-        total,
-    };
+// Check if this is the AI plan
+const isAIPlan = (plan = []) => {
+    return plan.length > 0 && plan.some((item) => item.focus && item.phase);
 };
 
-const resolveTrackLabel = (entry = {}) => {
-    const source = `${entry.course || ""} ${entry.phase || ""} ${entry.focus || ""}`.toLowerCase();
-    if (source.includes("mathematics") || source.includes("linear algebra") || source.includes("calculus") || source.includes("probability")) {
+// Map full course names to short names for AI plan
+const getShortCourseName = (fullName) => {
+    if (!fullName) return fullName;
+    const lower = fullName.toLowerCase();
+    if (lower.includes("mathematics") || lower.includes("machine learning")) {
         return "Mathematics";
     }
-    if (source.includes("python")) {
+    if (lower.includes("python") || lower.includes("programming")) {
         return "Python";
     }
-    if (source.includes("data science")) {
+    if (lower.includes("data science") || lower.includes("introduction to data")) {
         return "Data Science";
     }
-    return null;
+    return fullName;
 };
 
 const buildCourseStats = (plan = []) => {
     const courseMap = new Map();
+    const isAI = isAIPlan(plan);
+    
     plan.forEach((entry) => {
-        const label = resolveTrackLabel(entry) || entry.phase || entry.course || entry.focus || "Custom";
+        // Skip buffer entries and flex days
+        if (entry.isBuffer || entry.phase === "Flex Day" || entry.focus?.includes("Flex") || entry.lesson === "Review / Catch-up") {
+            return;
+        }
+        // Only count entries that have a lesson (module) - these are actual course modules
+        if (!entry.lesson) {
+            return;
+        }
+        // Use the actual course name from the entry
+        let label = entry.course;
         if (!label) return;
+        
+        // For AI plan, use short names
+        if (isAI) {
+            label = getShortCourseName(label);
+        }
+        
+        // Skip if it looks like a program name (no lesson means it's likely a program name entry)
         if (!courseMap.has(label)) {
             courseMap.set(label, { total: 0, completed: 0 });
         }
@@ -71,11 +84,6 @@ const ProgressSummary = ({ total, completed, streak, plan, goalDays, completedDa
     const normalizedCompleted = completedDays ?? completed;
     const progress = normalizedGoal ? Number(((normalizedCompleted / normalizedGoal) * 100).toFixed(1)) : 0;
 
-    const tracks = [
-        { label: "Mathematics", key: "mathematics", accent: "from-indigo-400 via-indigo-500 to-purple-500" },
-        { label: "Python", key: "python", accent: "from-blue-500 via-indigo-500 to-indigo-400" },
-        { label: "Data Science", key: "data science", accent: "from-sky-500 via-indigo-500 to-indigo-400" },
-    ];
     const palette = [
         "from-[#6366F1] via-[#8B5CF6] to-[#EC4899]",
         "from-[#3B82F6] via-[#7C3AED] to-[#6D28D9]",
@@ -84,24 +92,12 @@ const ProgressSummary = ({ total, completed, streak, plan, goalDays, completedDa
 
     const courseStats = buildCourseStats(plan)
         .sort((a, b) => b.value - a.value)
-        .slice(0, 3)
         .map((stat, index) => ({
             ...stat,
             accent: palette[index % palette.length],
         }));
 
-    const fallbackTracks = tracks.map((track, index) => {
-        const details = trackSummary(plan, track.key);
-        return {
-            label: track.label,
-            value: details.value,
-            completed: details.completed,
-            total: details.total,
-            accent: palette[index % palette.length],
-        };
-    });
-
-    const displayTracks = courseStats.length ? courseStats : fallbackTracks;
+    const displayTracks = courseStats;
 
     const stats = [
         { label: "Completed Days", value: normalizedCompleted, icon: icons.completed, accent: "from-emerald-500/20 to-emerald-500/5" },
@@ -126,7 +122,7 @@ const ProgressSummary = ({ total, completed, streak, plan, goalDays, completedDa
                     />
                 </div>
 
-                <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <div className={`mt-6 grid gap-4 ${displayTracks.length === 1 ? 'md:grid-cols-1' : displayTracks.length === 2 ? 'md:grid-cols-2' : displayTracks.length === 4 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
                     {displayTracks.map((track) => (
                         <div
                             key={track.label}

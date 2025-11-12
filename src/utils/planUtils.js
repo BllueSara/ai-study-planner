@@ -90,23 +90,60 @@ const allocateTasksToDays = (tasks, totalDays) => {
   const buckets = Array.from({ length: totalDays }, () => []);
   if (!tasks.length) return buckets;
 
-  if (totalDays === 1 || tasks.length === 1) {
+  if (totalDays === 1) {
     buckets[0] = [...tasks];
     return buckets;
   }
 
-  let assigned = 0;
-  for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
-    const proportional = Math.round(((dayIndex + 1) * tasks.length) / totalDays);
-    let count = proportional - assigned;
-    if (dayIndex === totalDays - 1) {
-      count = tasks.length - assigned;
+  // Distribute tasks across all days following the AI plan pattern:
+  // - If tasks >= days: each day gets at least one, remaining distributed proportionally
+  // - If tasks < days: distribute evenly with some days getting multiple tasks
+  let taskIndex = 0;
+  
+  if (tasks.length >= totalDays) {
+    // More tasks than days: ensure each day gets at least one, then distribute remainder
+    for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
+      buckets[dayIndex].push(tasks[taskIndex]);
+      taskIndex += 1;
     }
-    count = Math.max(0, count);
-
-    for (let step = 0; step < count && assigned < tasks.length; step += 1) {
-      buckets[dayIndex].push(tasks[assigned]);
-      assigned += 1;
+    
+    // Distribute remaining tasks round-robin style
+    while (taskIndex < tasks.length) {
+      for (let dayIndex = 0; dayIndex < totalDays && taskIndex < tasks.length; dayIndex += 1) {
+        buckets[dayIndex].push(tasks[taskIndex]);
+        taskIndex += 1;
+      }
+    }
+  } else {
+    // Fewer tasks than days: distribute tasks as evenly as possible
+    // Each task will be assigned to a day, some days may have multiple tasks
+    // Calculate spacing to distribute evenly
+    const spacing = totalDays / tasks.length;
+    for (let i = 0; i < tasks.length; i += 1) {
+      const dayIndex = Math.floor(i * spacing);
+      buckets[dayIndex].push(tasks[i]);
+    }
+    
+    // Ensure every day gets at least one task by filling empty days
+    // with the nearest task
+    for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
+      if (buckets[dayIndex].length === 0) {
+        // Find the nearest day with a task and use its first task
+        let nearestDay = dayIndex;
+        let minDistance = totalDays;
+        for (let j = 0; j < totalDays; j += 1) {
+          if (buckets[j].length > 0) {
+            const distance = Math.abs(j - dayIndex);
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearestDay = j;
+            }
+          }
+        }
+        if (buckets[nearestDay].length > 0) {
+          buckets[dayIndex].push(buckets[nearestDay][0]);
+        }
+      }
     }
   }
 
@@ -138,17 +175,26 @@ export const distributeTasks = (tasks, startDate, endDate, planId, programName) 
   const schedule = [];
   const dayBuckets = allocateTasksToDays(tasks, totalDays);
 
+  // Ensure we have tasks to distribute - if not, return empty schedule
+  if (!tasks.length) {
+    return schedule;
+  }
+
   for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
     const currentDate = new Date(start.getTime() + dayIndex * DAY_IN_MS);
     const iso = currentDate.toISOString().split("T")[0];
     const label = currentDate.toLocaleString("en-US", { month: "short", day: "numeric" });
-    const tasksForDay = dayBuckets[dayIndex];
+    const tasksForDay = dayBuckets[dayIndex] || [];
 
-    if (!tasksForDay.length) {
-      schedule.push(buildBufferEntry({ planId, iso, label, dayIndex, programName }));
-      continue;
+    // For custom plans, match AI plan structure: every day should have at least one module
+    // If allocation left a day empty (shouldn't happen with new logic, but safety check)
+    if (!tasksForDay.length && tasks.length > 0) {
+      // Distribute the last task or proportionally assign
+      const taskIndex = Math.min(Math.floor((dayIndex / totalDays) * tasks.length), tasks.length - 1);
+      tasksForDay.push(tasks[taskIndex]);
     }
 
+    // Add all tasks for this day (following AI plan pattern where some days have multiple modules)
     tasksForDay.forEach((task, slot) => {
       schedule.push({
         ...task,
