@@ -413,13 +413,18 @@ const App = () => {
       return;
     }
 
+    // Preserve the exact structure from STUDY_PLAN - use modules directly with their original focus, course, and phase
     const modulesToSchedule = [];
     prioritizedTracks.forEach((trackId) => {
       const track = TRACKS.find((t) => t.id === trackId);
       const modules = trackModulesMap[trackId] || [];
       console.log(`handleCustomPlanSubmit: Track ${track?.label || trackId} has ${modules.length} modules`);
+      // Use modules directly from STUDY_PLAN to preserve exact structure (focus, course, phase, lesson)
       modules.forEach((module) => {
-        modulesToSchedule.push({ ...module, trackLabel: track?.label || module.phase || "Custom" });
+        modulesToSchedule.push({
+          ...module, // Preserve all original fields: focus, course, phase, lesson
+          trackLabel: track?.label || module.phase || "Custom",
+        });
       });
     });
 
@@ -431,39 +436,68 @@ const App = () => {
       return;
     }
 
-    // Convert modules to courses format for generateCustomPlan
-    // Group modules by course to create courses array
-    const courseMap = new Map();
-    modulesToSchedule.forEach((module) => {
-      const courseName = module.course || module.focus || "Unknown Course";
-      if (!courseMap.has(courseName)) {
-        courseMap.set(courseName, {
-          name: courseName,
-          modules: 0,
-          included: true,
-        });
-      }
-      courseMap.get(courseName).modules += 1;
-    });
+    // Use modules directly with their original structure from STUDY_PLAN
+    // Distribute them across the new date range while preserving focus, course, phase, and lesson
+    const previewPlanId = customPlanId || "custom-plan-preview";
+    
+    // Distribute modules directly using distributeTasks to preserve exact structure
+    const customPlanEntries = distributeTasks(
+      modulesToSchedule,
+      customStartDate,
+      customEndDate,
+      previewPlanId,
+      planMeta.programName || "Custom Study Plan"
+    );
 
-    const coursesArray = Array.from(courseMap.values());
-
-    if (!coursesArray.length) {
-      setModalError("No courses found to schedule.");
+    if (!customPlanEntries || !customPlanEntries.length) {
+      setModalError("Unable to generate a schedule for the selected range.");
       return;
     }
 
-    // Use generateCustomPlan (same logic as custom plan creation)
-    const previewPlanId = customPlanId || "custom-plan-preview";
-    const customPlanData = generateCustomPlan({
+    // Extract courses from entries to match default plan structure
+    const courseMap = new Map();
+    const studyPlanFocusOrder = [];
+    const seenFocuses = new Set();
+    
+    // Get order from STUDY_PLAN
+    STUDY_PLAN.forEach((entry) => {
+      if (entry.focus && !seenFocuses.has(entry.focus)) {
+        studyPlanFocusOrder.push(entry.focus);
+        seenFocuses.add(entry.focus);
+      }
+    });
+    
+    // Count modules per focus (course) from the generated entries
+    customPlanEntries.forEach((entry) => {
+      if (entry.focus && entry.course) {
+        const courseName = entry.focus; // Use focus as course name like default plan
+        if (!courseMap.has(courseName)) {
+          courseMap.set(courseName, {
+            name: courseName,
+            modules: 0,
+            included: true,
+          });
+        }
+        courseMap.get(courseName).modules += 1;
+      }
+    });
+
+    // Create courses array in STUDY_PLAN order
+    const coursesArray = studyPlanFocusOrder
+      .filter(focus => courseMap.has(focus))
+      .map(focus => courseMap.get(focus));
+
+    const customPlanData = {
+      id: previewPlanId,
       programName: planMeta.programName || "Custom Study Plan",
-      courses: coursesArray,
+      summary: coursesArray.map(c => c.name).slice(0, 3).join(" • ") || "Custom Plan",
       startDate: customStartDate,
       endDate: customEndDate,
       priority: "custom",
-      planId: previewPlanId,
       createdAt: planMeta.createdAt || Date.now(),
-    });
+      courses: coursesArray,
+      entries: customPlanEntries,
+    };
 
     if (!customPlanData.entries || !customPlanData.entries.length) {
       setModalError("Unable to generate a schedule for the selected range.");
@@ -479,6 +513,14 @@ const App = () => {
       endDate: customPlanData.endDate,
     }));
     setPlanCourses(customPlanData.courses);
+    const stored = loadPlans();
+    if (customPlanId) {
+      // Update existing plan
+      savePlans(stored.map((storedPlan) => (storedPlan.id === customPlanId ? customPlanData : storedPlan)));
+    } else {
+      // Save new plan
+      savePlans([...stored, customPlanData]);
+    }
     setCustomModalOpen(false);
     setToastMessage("Your AI study plan has been updated!");
   };
