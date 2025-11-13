@@ -20,7 +20,10 @@
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.0.2",
+<<<<<<< HEAD
     "socket.io-client": "^4.7.2",
+=======
+>>>>>>> 9ffb38d2d14cd560232ea4fd2fbcec3018ae6079
     "tailwind-variants": "^3.1.1"
   },
   "devDependencies": {
