@@ -431,25 +431,54 @@ const App = () => {
       return;
     }
 
+    // Convert modules to courses format for generateCustomPlan
+    // Group modules by course to create courses array
+    const courseMap = new Map();
+    modulesToSchedule.forEach((module) => {
+      const courseName = module.course || module.focus || "Unknown Course";
+      if (!courseMap.has(courseName)) {
+        courseMap.set(courseName, {
+          name: courseName,
+          modules: 0,
+          included: true,
+        });
+      }
+      courseMap.get(courseName).modules += 1;
+    });
+
+    const coursesArray = Array.from(courseMap.values());
+
+    if (!coursesArray.length) {
+      setModalError("No courses found to schedule.");
+      return;
+    }
+
+    // Use generateCustomPlan (same logic as custom plan creation)
     const previewPlanId = customPlanId || "custom-plan-preview";
-    const customPlan = createCustomPlanEntries(
-      modulesToSchedule,
-      customStartDate,
-      customEndDate,
-      previewPlanId,
-      planMeta.programName,
-    );
-    if (!customPlan.length) {
+    const customPlanData = generateCustomPlan({
+      programName: planMeta.programName || "Custom Study Plan",
+      courses: coursesArray,
+      startDate: customStartDate,
+      endDate: customEndDate,
+      priority: "custom",
+      planId: previewPlanId,
+      createdAt: planMeta.createdAt || Date.now(),
+    });
+
+    if (!customPlanData.entries || !customPlanData.entries.length) {
       setModalError("Unable to generate a schedule for the selected range.");
       return;
     }
 
-    setPlan(customPlan);
+    setPlan(customPlanData.entries);
     setPlanMeta((prev) => ({
       ...prev,
-      startDate: customStartDate,
-      endDate: customEndDate,
+      programName: customPlanData.programName,
+      summary: customPlanData.summary,
+      startDate: customPlanData.startDate,
+      endDate: customPlanData.endDate,
     }));
+    setPlanCourses(customPlanData.courses);
     setCustomModalOpen(false);
     setToastMessage("Your AI study plan has been updated!");
   };
