@@ -16,13 +16,13 @@ const TRACKS = [
     id: "dataScience",
     label: "Data Science",
     description: "Hands-on data manipulation and analysis",
-    focuses: ["Data Science"],
+    focuses: ["Introduction to Data Science"],
   },
   {
     id: "pythonBasics",
     label: "Python Basics",
     description: "Python foundations, functions, and files",
-    focuses: ["Python Basics", "Functions & Files"],
+    focuses: ["Python Basics", "Functions, Files, and Dictionaries", "Data Collection and Processing with Python", "Python Classes and Inheritance"],
   },
 ];
 
@@ -241,7 +241,23 @@ const App = () => {
 
   const completedCount = plan.filter((d) => d.completed).length;
   const totalCount = plan.length;
-  const goalDayCount = useMemo(() => getUniqueDayCount(plan), [plan]);
+  
+  // Calculate goalDayCount from actual start and end dates, not from entries
+  // This ensures the count reflects the actual date range selected
+  const goalDayCount = useMemo(() => {
+    if (!planMeta.startDate || !planMeta.endDate) {
+      // Fallback to unique day count if dates not available
+      const fallback = getUniqueDayCount(plan);
+      console.log('goalDayCount: Using fallback (unique days)', fallback);
+      return fallback;
+    }
+    const start = new Date(planMeta.startDate);
+    const end = new Date(planMeta.endDate);
+    const days = Math.max(1, Math.floor((end - start) / DAY_IN_MS) + 1);
+    console.log(`goalDayCount: ${days} days (${planMeta.startDate} to ${planMeta.endDate})`);
+    return days;
+  }, [planMeta.startDate, planMeta.endDate, plan]);
+  
   const completedDayCount = useMemo(() => getCompletedDayCount(plan), [plan]);
 
   const resetPlan = () => {
@@ -401,35 +417,68 @@ const App = () => {
     prioritizedTracks.forEach((trackId) => {
       const track = TRACKS.find((t) => t.id === trackId);
       const modules = trackModulesMap[trackId] || [];
+      console.log(`handleCustomPlanSubmit: Track ${track?.label || trackId} has ${modules.length} modules`);
       modules.forEach((module) => {
         modulesToSchedule.push({ ...module, trackLabel: track?.label || module.phase || "Custom" });
       });
     });
+
+    console.log(`handleCustomPlanSubmit: Total modules to schedule: ${modulesToSchedule.length}`);
+    console.log(`handleCustomPlanSubmit: Selected tracks: ${prioritizedTracks.join(', ')}`);
 
     if (!modulesToSchedule.length) {
       setModalError("No modules found for the selected tracks.");
       return;
     }
 
+    // Convert modules to courses format for generateCustomPlan
+    // Group modules by course to create courses array
+    const courseMap = new Map();
+    modulesToSchedule.forEach((module) => {
+      const courseName = module.course || module.focus || "Unknown Course";
+      if (!courseMap.has(courseName)) {
+        courseMap.set(courseName, {
+          name: courseName,
+          modules: 0,
+          included: true,
+        });
+      }
+      courseMap.get(courseName).modules += 1;
+    });
+
+    const coursesArray = Array.from(courseMap.values());
+
+    if (!coursesArray.length) {
+      setModalError("No courses found to schedule.");
+      return;
+    }
+
+    // Use generateCustomPlan (same logic as custom plan creation)
     const previewPlanId = customPlanId || "custom-plan-preview";
-    const customPlan = createCustomPlanEntries(
-      modulesToSchedule,
-      customStartDate,
-      customEndDate,
-      previewPlanId,
-      planMeta.programName,
-    );
-    if (!customPlan.length) {
+    const customPlanData = generateCustomPlan({
+      programName: planMeta.programName || "Custom Study Plan",
+      courses: coursesArray,
+      startDate: customStartDate,
+      endDate: customEndDate,
+      priority: "custom",
+      planId: previewPlanId,
+      createdAt: planMeta.createdAt || Date.now(),
+    });
+
+    if (!customPlanData.entries || !customPlanData.entries.length) {
       setModalError("Unable to generate a schedule for the selected range.");
       return;
     }
 
-    setPlan(customPlan);
+    setPlan(customPlanData.entries);
     setPlanMeta((prev) => ({
       ...prev,
-      startDate: customStartDate,
-      endDate: customEndDate,
+      programName: customPlanData.programName,
+      summary: customPlanData.summary,
+      startDate: customPlanData.startDate,
+      endDate: customPlanData.endDate,
     }));
+    setPlanCourses(customPlanData.courses);
     setCustomModalOpen(false);
     setToastMessage("Your AI study plan has been updated!");
   };
