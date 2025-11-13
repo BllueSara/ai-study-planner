@@ -2,33 +2,34 @@
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Setup Supabase
 
-**Frontend:**
+1. Create a new project on [Supabase](https://supabase.com)
+2. Copy your `SUPABASE_URL` and `SUPABASE_ANON_KEY` from project settings
+3. Run the `supabase-schema.sql` file in the SQL Editor in Supabase Dashboard
+4. Enable Realtime for `sessions` and `participants` tables in Supabase Dashboard
+
+### 2. Install Dependencies
+
 ```bash
 npm install
 ```
 
-**Backend:**
-```bash
-cd server
-npm install
+### 3. Configure Environment Variables
+
+Create `.env` in root:
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-### 2. Start Both Servers
+### 4. Start the Application
 
-**Terminal 1 - Backend (Port 3001):**
-```bash
-cd server
-npm run dev
-```
-
-**Terminal 2 - Frontend (Port 4000):**
 ```bash
 npm run dev
 ```
 
-### 3. Access the Feature
+### 5. Access the Feature
 
 - Open browser: `http://localhost:4000`
 - Click "Study Sessions" button in the header
@@ -38,9 +39,6 @@ npm run dev
 
 ```
 project/
-├── server/
-│   ├── index.js              # Socket.io server
-│   └── package.json          # Backend dependencies
 ├── src/
 │   ├── components/
 │   │   ├── CreateSessionModal.jsx    # Create session form
@@ -49,8 +47,10 @@ project/
 │   ├── pages/
 │   │   └── StudySessionPage.jsx      # Main session page
 │   └── utils/
-│       └── socket.js                  # Socket.io client setup
-└── package.json              # Frontend dependencies (includes socket.io-client)
+│       ├── supabase.js               # Supabase client setup
+│       └── sessionService.js         # Session management functions
+├── supabase-schema.sql               # Database schema
+└── package.json                     # Frontend dependencies
 ```
 
 ## How It Works
@@ -71,56 +71,52 @@ project/
 ## Features
 
 ✅ **Real-time Synchronized Timer**
-- Server-side timer (single source of truth)
-- Updates broadcast every second
+- Client-side timer synchronized via Supabase Realtime
+- Updates broadcast in real-time
 - All participants see same countdown
 
 ✅ **Live Leaderboard**
 - Shows all participants
-- Real-time updates
+- Real-time updates via Supabase Realtime
 - Status tracking (active, completed, left)
-- Ranked by join order
+- Ranked by time spent
 
 ✅ **Leader Controls**
 - Start/Pause/Reset/End timer
 - Full session management
+- All changes synced via Supabase
 
 ✅ **Automatic Reconnection**
 - Handles disconnections
 - Updates status on reconnect
+- Session state persisted in database
 
-## Environment Variables
+## Architecture
 
-Create `.env` in root:
-```env
-VITE_SOCKET_URL=http://localhost:3001
-```
-
-Create `server/.env`:
-```env
-PORT=3001
-CLIENT_URL=http://localhost:4000
-```
+- **Backend**: Supabase (PostgreSQL + Realtime)
+- **Frontend**: React + Supabase JS Client
+- **Real-time**: Supabase Realtime subscriptions
+- **State**: Database maintains source of truth
 
 ## Production Deployment
 
-1. Deploy backend to Railway/Render/Heroku
-2. Update `VITE_SOCKET_URL` in frontend `.env`
-3. Update `CLIENT_URL` in backend `.env`
-4. Build frontend: `npm run build`
-5. Deploy frontend to Vercel/Netlify
+1. Deploy Supabase project (already hosted)
+2. Update environment variables in your hosting platform
+3. Build frontend: `npm run build`
+4. Deploy frontend to Vercel/Netlify
 
 ## Troubleshooting
 
-**Can't connect to server:**
-- Check backend is running on port 3001
-- Verify `VITE_SOCKET_URL` in `.env`
+**Can't connect to Supabase:**
+- Check `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env`
+- Verify Supabase project is active
 
 **Timer not syncing:**
 - Check browser console for errors
-- Verify Socket.io connection in Network tab
+- Verify Realtime is enabled in Supabase Dashboard
+- Check network tab for Supabase WebSocket connections
 
 **Participants not appearing:**
-- Check server logs
-- Verify socket events are firing
-
+- Verify database schema is set up correctly
+- Check Supabase Dashboard logs
+- Ensure RLS policies allow read operations

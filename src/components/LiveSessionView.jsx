@@ -1,58 +1,144 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import {
+  subscribeToSession,
+  subscribeToParticipants,
+  unsubscribe,
+  getSession,
+  getParticipants,
+  startTimer,
+  pauseTimer,
+  resetTimer,
+  endSession,
+  updateParticipantTime,
+} from "../utils/sessionService";
 
-const LiveSessionView = ({ sessionId, isLeader, socket, initialSession, onLeave }) => {
+const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave }) => {
   const [session, setSession] = useState(initialSession);
-  const [remainingTime, setRemainingTime] = useState(initialSession?.remainingTime || 0);
+  const [remainingTime, setRemainingTime] = useState(initialSession?.remaining_time || initialSession?.remainingTime || 0);
   const [status, setStatus] = useState(initialSession?.status || "waiting");
   const [leaderboard, setLeaderboard] = useState(initialSession?.participants || []);
   const [error, setError] = useState("");
-
+  
+  const timerIntervalRef = useRef(null);
+  const sessionChannelRef = useRef(null);
+  const participantsChannelRef = useRef(null);
+  const lastUpdateTimeRef = useRef(Date.now());
+  const sessionRef = useRef(session);
+  
+  // Keep sessionRef in sync with session state
   useEffect(() => {
-    if (!socket) return;
+    sessionRef.current = session;
+  }, [session]);
 
-    // Listen for session state updates
-    const handleSessionJoined = (data) => {
-      setSession(data.session);
-      setRemainingTime(data.session.remainingTime);
-      setStatus(data.session.status);
-      setLeaderboard(data.session.participants || []);
-      setError("");
-    };
+  // Calculate remaining time based on session state
+  const calculateRemainingTime = (sessionData) => {
+    if (!sessionData || sessionData.status !== "active") {
+      return sessionData?.remaining_time || 0;
+    }
 
-    // Listen for timer updates
-    const handleTimerUpdate = (data) => {
-      setRemainingTime(data.remainingTime);
-      setStatus(data.status);
-    };
+    const now = Date.now();
+    const startTime = sessionData.start_time;
+    const pausedDuration = sessionData.paused_duration || 0;
 
-    // Listen for leaderboard updates
-    const handleLeaderboardUpdate = (data) => {
-      setLeaderboard(data);
-    };
+    if (!startTime) {
+      return sessionData.remaining_time || 0;
+    }
 
-    // Listen for errors
-    const handleJoinError = (data) => {
-      setError(data.message);
-    };
+    const elapsed = Math.floor((now - startTime - pausedDuration) / 1000);
+    const remaining = Math.max(0, sessionData.duration - elapsed);
+    return remaining;
+  };
 
-    const handleError = (data) => {
-      setError(data.message);
-    };
+  // Update timer every second when active
+  useEffect(() => {
+    if (status === "active" && session) {
+      timerIntervalRef.current = setInterval(() => {
+        const currentSession = sessionRef.current;
+        if (!currentSession || currentSession.status !== "active") return;
 
-    socket.on("session-joined", handleSessionJoined);
-    socket.on("timer-update", handleTimerUpdate);
-    socket.on("leaderboard-update", handleLeaderboardUpdate);
-    socket.on("join-error", handleJoinError);
-    socket.on("error", handleError);
+        const newRemainingTime = calculateRemainingTime(currentSession);
+        setRemainingTime(newRemainingTime);
+
+        // Update participant time spent
+        if (userId && newRemainingTime > 0) {
+          const timeSpent = currentSession.duration - newRemainingTime;
+          updateParticipantTime(sessionId, userId, timeSpent).catch(console.error);
+        }
+
+        // Check if timer ended
+        if (newRemainingTime <= 0) {
+          if (isLeader) {
+            endSession(sessionId, userId).catch(console.error);
+          }
+        }
+      }, 1000);
+    } else {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    }
 
     return () => {
-      socket.off("session-joined", handleSessionJoined);
-      socket.off("timer-update", handleTimerUpdate);
-      socket.off("leaderboard-update", handleLeaderboardUpdate);
-      socket.off("join-error", handleJoinError);
-      socket.off("error", handleError);
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
     };
-  }, [socket]);
+  }, [status, session, sessionId, userId, isLeader]);
+
+  // Subscribe to session updates
+  useEffect(() => {
+    if (!sessionId) return;
+
+    // Subscribe to session changes
+    sessionChannelRef.current = subscribeToSession(sessionId, async (payload) => {
+      try {
+        const updatedSession = await getSession(sessionId);
+        const newRemainingTime = calculateRemainingTime(updatedSession);
+        
+        setSession(updatedSession);
+        setRemainingTime(newRemainingTime);
+        setStatus(updatedSession.status);
+        lastUpdateTimeRef.current = Date.now();
+      } catch (error) {
+        console.error("Error updating session:", error);
+        setError(error.message || "Failed to update session");
+      }
+    });
+
+    // Subscribe to participant changes
+    participantsChannelRef.current = subscribeToParticipants(sessionId, (participants) => {
+      setLeaderboard(participants);
+    });
+
+    // Initial fetch
+    const loadSession = async () => {
+      try {
+        const sessionData = await getSession(sessionId);
+        const participants = await getParticipants(sessionId);
+        const newRemainingTime = calculateRemainingTime(sessionData);
+
+        setSession(sessionData);
+        setRemainingTime(newRemainingTime);
+        setStatus(sessionData.status);
+        setLeaderboard(participants);
+      } catch (error) {
+        console.error("Error loading session:", error);
+        setError(error.message || "Failed to load session");
+      }
+    };
+
+    loadSession();
+
+    return () => {
+      if (sessionChannelRef.current) {
+        unsubscribe(sessionChannelRef.current);
+      }
+      if (participantsChannelRef.current) {
+        unsubscribe(participantsChannelRef.current);
+      }
+    };
+  }, [sessionId]);
 
   const formatTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
@@ -65,27 +151,43 @@ const LiveSessionView = ({ sessionId, isLeader, socket, initialSession, onLeave 
     return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  const handleStart = () => {
-    if (socket && isLeader) {
-      socket.emit("start-timer", { sessionId });
+  const handleStart = async () => {
+    if (!isLeader || !userId) return;
+    try {
+      await startTimer(sessionId, userId);
+    } catch (error) {
+      console.error("Error starting timer:", error);
+      setError(error.message || "Failed to start timer");
     }
   };
 
-  const handlePause = () => {
-    if (socket && isLeader) {
-      socket.emit("pause-timer", { sessionId });
+  const handlePause = async () => {
+    if (!isLeader || !userId) return;
+    try {
+      await pauseTimer(sessionId, userId);
+    } catch (error) {
+      console.error("Error pausing timer:", error);
+      setError(error.message || "Failed to pause timer");
     }
   };
 
-  const handleReset = () => {
-    if (socket && isLeader) {
-      socket.emit("reset-timer", { sessionId });
+  const handleReset = async () => {
+    if (!isLeader || !userId) return;
+    try {
+      await resetTimer(sessionId, userId);
+    } catch (error) {
+      console.error("Error resetting timer:", error);
+      setError(error.message || "Failed to reset timer");
     }
   };
 
-  const handleEnd = () => {
-    if (socket && isLeader) {
-      socket.emit("end-session", { sessionId });
+  const handleEnd = async () => {
+    if (!isLeader || !userId) return;
+    try {
+      await endSession(sessionId, userId);
+    } catch (error) {
+      console.error("Error ending session:", error);
+      setError(error.message || "Failed to end session");
     }
   };
 
@@ -155,7 +257,7 @@ const LiveSessionView = ({ sessionId, isLeader, socket, initialSession, onLeave 
                 Live Session
               </div>
               <h1 className="text-3xl md:text-5xl font-semibold text-white bg-gradient-to-r from-indigo-200 to-purple-200 bg-clip-text text-transparent">
-                {session.sessionName}
+                {session.session_name || session.sessionName}
               </h1>
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <div className="flex items-center gap-2 rounded-full border border-indigo-900/30 bg-indigo-500/10 px-3 py-1.5">

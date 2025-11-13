@@ -362,9 +362,12 @@ export const distributeTasks = (tasks, startDate, endDate, planId, programName) 
     // Add ALL tasks for this day (can be 0, 1, 2, 3, 4, or more modules per day)
     // This ensures every module is included in the schedule
     tasksForDay.forEach((task, slot) => {
+      // Generate unique ID using task content to ensure uniqueness
+      const taskKey = `${task.course || task.focus || 'task'}-${task.lesson || slot}`;
+      const uniqueId = `${planId || "plan"}-${iso}-${slot}-${taskKey.replace(/[^a-zA-Z0-9]/g, '-')}`;
       schedule.push({
         ...task,
-        id: `${planId || "plan"}-${iso}-${slot}`,
+        id: uniqueId,
         dateISO: iso,
         date: label,
         week: Math.floor(dayIndex / 7) + 1,

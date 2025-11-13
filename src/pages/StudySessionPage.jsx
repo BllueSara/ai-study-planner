@@ -3,88 +3,34 @@ import { useNavigate } from "react-router-dom";
 import CreateSessionModal from "../components/CreateSessionModal";
 import JoinSessionModal from "../components/JoinSessionModal";
 import LiveSessionView from "../components/LiveSessionView";
-import { createSocket } from "../utils/socket";
+import {
+  createSession,
+  joinSession,
+  getSession,
+  getParticipants,
+} from "../utils/sessionService";
 
 const StudySessionPage = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [currentSession, setCurrentSession] = useState(null);
-  const [socket, setSocket] = useState(null);
+  const [userId, setUserId] = useState(null);
   const [isLeader, setIsLeader] = useState(false);
 
   // Load session from localStorage on mount
   useEffect(() => {
-    // Prevent double execution
-    if (socket || currentSession) return;
+    if (currentSession) return;
 
     const savedSession = localStorage.getItem("studySession");
     if (savedSession) {
       try {
         const sessionData = JSON.parse(savedSession);
-        const { sessionId, participantName, isLeader: savedIsLeader } = sessionData;
+        const { sessionId, participantName, userId: savedUserId, isLeader: savedIsLeader } = sessionData;
         
         if (sessionId && participantName) {
           // Reconnect to session
-          const newSocket = createSocket();
-          setSocket(newSocket);
-          setIsLeader(savedIsLeader || false);
-
-          let hasJoined = false; // Prevent duplicate joins
-          let joinTimeout = null;
-
-          const handleConnect = () => {
-            if (!hasJoined && newSocket.connected) {
-              hasJoined = true;
-              clearTimeout(joinTimeout);
-              newSocket.emit("join-session", { sessionId, participantName });
-            }
-          };
-
-          // Handle already connected socket
-          if (newSocket.connected) {
-            handleConnect();
-          } else {
-            newSocket.on("connect", handleConnect);
-          }
-
-          newSocket.on("session-joined", (data) => {
-            setCurrentSession({
-              sessionId: data.sessionId,
-              session: data.session,
-            });
-            setIsLeader(data.session.isLeader);
-            // Update localStorage with fresh data
-            localStorage.setItem("studySession", JSON.stringify({
-              sessionId: data.sessionId,
-              participantName,
-              isLeader: data.session.isLeader,
-            }));
-            // Remove connect listener after successful join
-            newSocket.off("connect", handleConnect);
-          });
-
-          newSocket.on("join-error", (data) => {
-            console.error("Reconnection error:", data);
-            hasJoined = false;
-            localStorage.removeItem("studySession");
-            newSocket.disconnect();
-            setSocket(null);
-          });
-
-          newSocket.on("error", (data) => {
-            console.error("Session error:", data);
-            hasJoined = false;
-            localStorage.removeItem("studySession");
-            newSocket.disconnect();
-            setSocket(null);
-          });
-
-          // Cleanup timeout
-          return () => {
-            clearTimeout(joinTimeout);
-            newSocket.off("connect", handleConnect);
-          };
+          reconnectToSession(sessionId, participantName, savedUserId, savedIsLeader);
         }
       } catch (error) {
         console.error("Error loading session:", error);
@@ -93,85 +39,110 @@ const StudySessionPage = () => {
     }
   }, []);
 
-  useEffect(() => {
-    // Cleanup on unmount
-    return () => {
-      if (socket) {
-        socket.disconnect();
-      }
-    };
-  }, [socket]);
+  const reconnectToSession = async (sessionId, participantName, savedUserId, savedIsLeader) => {
+    try {
+      const result = await joinSession(sessionId, participantName);
+      const session = await getSession(sessionId);
+      const participants = await getParticipants(sessionId);
 
-  const handleCreateSession = ({ sessionName, duration, leaderName }) => {
-    const newSocket = createSocket();
-    setSocket(newSocket);
-
-    newSocket.on("connect", () => {
-      newSocket.emit("create-session", { sessionName, duration, leaderName });
-    });
-
-    newSocket.on("session-created", (data) => {
+      setUserId(result.userId);
+      setIsLeader(result.session.isLeader);
       setCurrentSession({
-        sessionId: data.sessionId,
-        session: data.session,
+        sessionId: result.sessionId,
+        session: {
+          ...session,
+          participants,
+          isLeader: result.session.isLeader,
+        },
       });
+
+      // Update localStorage
+      localStorage.setItem("studySession", JSON.stringify({
+        sessionId: result.sessionId,
+        participantName,
+        userId: result.userId,
+        isLeader: result.session.isLeader,
+      }));
+    } catch (error) {
+      console.error("Reconnection error:", error);
+      alert(error.message || "Failed to reconnect to session");
+      localStorage.removeItem("studySession");
+    }
+  };
+
+  const handleCreateSession = async ({ sessionName, duration, leaderName }) => {
+    try {
+      const result = await createSession(sessionName, duration, leaderName);
+      const session = await getSession(result.sessionId);
+      const participants = await getParticipants(result.sessionId);
+
+      setUserId(result.userId);
       setIsLeader(true);
+      setCurrentSession({
+        sessionId: result.sessionId,
+        session: {
+          ...session,
+          participants,
+          isLeader: true,
+        },
+      });
       setShowCreateModal(false);
+
       // Save to localStorage
       localStorage.setItem("studySession", JSON.stringify({
-        sessionId: data.sessionId,
+        sessionId: result.sessionId,
         participantName: leaderName,
+        userId: result.userId,
         isLeader: true,
       }));
-    });
-
-    newSocket.on("error", (data) => {
-      console.error("Session error:", data);
-      alert(data.message || "Failed to create session");
-    });
+    } catch (error) {
+      console.error("Session error:", error);
+      alert(error.message || "Failed to create session");
+    }
   };
 
-  const handleJoinSession = ({ sessionId, participantName }) => {
-    const newSocket = createSocket();
-    setSocket(newSocket);
+  const handleJoinSession = async ({ sessionId, participantName }) => {
+    try {
+      const result = await joinSession(sessionId, participantName);
+      const session = await getSession(result.sessionId);
+      const participants = await getParticipants(result.sessionId);
 
-    newSocket.on("connect", () => {
-      newSocket.emit("join-session", { sessionId, participantName });
-    });
-
-    newSocket.on("session-joined", (data) => {
+      setUserId(result.userId);
+      setIsLeader(result.session.isLeader);
       setCurrentSession({
-        sessionId: data.sessionId,
-        session: data.session,
+        sessionId: result.sessionId,
+        session: {
+          ...session,
+          participants,
+          isLeader: result.session.isLeader,
+        },
       });
-      setIsLeader(data.session.isLeader);
       setShowJoinModal(false);
+
       // Save to localStorage
       localStorage.setItem("studySession", JSON.stringify({
-        sessionId: data.sessionId,
+        sessionId: result.sessionId,
         participantName,
-        isLeader: data.session.isLeader,
+        userId: result.userId,
+        isLeader: result.session.isLeader,
       }));
-    });
-
-    newSocket.on("join-error", (data) => {
-      alert(data.message || "Failed to join session");
-      newSocket.disconnect();
-    });
-
-    newSocket.on("error", (data) => {
-      console.error("Session error:", data);
-      alert(data.message || "Failed to join session");
-      newSocket.disconnect();
-    });
+    } catch (error) {
+      console.error("Session error:", error);
+      alert(error.message || "Failed to join session");
+    }
   };
 
-  const handleLeaveSession = () => {
-    if (socket) {
-      socket.disconnect();
-      setSocket(null);
+  const handleLeaveSession = async () => {
+    if (currentSession && userId) {
+      try {
+        const { updateParticipantStatus } = await import("../utils/sessionService");
+        await updateParticipantStatus(currentSession.sessionId, userId, "left");
+      } catch (error) {
+        console.error("Error updating participant status:", error);
+      }
     }
     setCurrentSession(null);
+    setUserId(null);
     setIsLeader(false);
     // Clear localStorage
     localStorage.removeItem("studySession");
@@ -181,8 +152,8 @@ const StudySessionPage = () => {
     return (
       <LiveSessionView
         sessionId={currentSession.sessionId}
+        userId={userId}
         isLeader={isLeader}
-        socket={socket}
         initialSession={currentSession.session}
         onLeave={handleLeaveSession}
       />

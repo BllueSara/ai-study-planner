@@ -440,7 +440,8 @@ const App = () => {
 
     // Use modules directly with their original structure from STUDY_PLAN
     // Distribute them across the new date range while preserving focus, course, phase, and lesson
-    const previewPlanId = customPlanId || "custom-plan-preview";
+    // Generate unique ID to avoid duplicate keys
+    const previewPlanId = customPlanId || `custom-plan-preview-${Date.now()}`;
     
     // Distribute modules directly using distributeTasks to preserve exact structure
     const customPlanEntries = distributeTasks(
