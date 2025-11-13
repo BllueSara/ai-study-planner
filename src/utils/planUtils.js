@@ -99,12 +99,12 @@ const allocateTasksToDays = (tasks, totalDays) => {
   // CRITICAL: ALL tasks must be included - never delete or skip any modules
   // Distribute all tasks across available days, preserving course order
   // The tasks array already comes in course order from createModuleBank
-
+  
   // Group tasks by course to maintain course integrity and order
   const tasksByCourse = [];
   let currentCourse = null;
   let currentCourseTasks = [];
-
+  
   tasks.forEach((task) => {
     const courseName = task.course || task.focus || "Unknown";
     if (courseName !== currentCourse) {
@@ -120,7 +120,7 @@ const allocateTasksToDays = (tasks, totalDays) => {
       currentCourseTasks.push(task);
     }
   });
-
+  
   // Don't forget the last course
   if (currentCourse !== null && currentCourseTasks.length > 0) {
     tasksByCourse.push({ course: currentCourse, tasks: [...currentCourseTasks] });
@@ -128,10 +128,10 @@ const allocateTasksToDays = (tasks, totalDays) => {
 
   // Calculate total tasks
   const totalTasks = tasks.length;
-
+  
   console.log(`allocateTasksToDays: Distributing ${totalTasks} tasks across ${totalDays} days`);
   console.log(`Courses: ${tasksByCourse.map(c => `${c.course} (${c.tasks.length} tasks)`).join(', ')}`);
-
+  
   // CRITICAL: ALL tasks must be distributed - distribute sequentially by course
   // Simple and guaranteed strategy: 
   // 1. Go through each course in order
@@ -140,57 +140,71 @@ const allocateTasksToDays = (tasks, totalDays) => {
   // 4. If a day already has this course, prefer adding to it
   // 5. Otherwise, add to current day and move forward
   // 6. GUARANTEE: Every single task will be added to a bucket
-
+  
   let tasksAdded = 0;
-
+  
   // Distribute tasks evenly across all days while preserving course order
   // Strategy: Distribute tasks evenly across all available days
   const allTasks = [];
-
+  
   // Flatten all tasks while preserving course order
   tasksByCourse.forEach(({ course, tasks: courseTasks }) => {
     courseTasks.forEach((task) => {
       allTasks.push({ task, course });
     });
   });
-
+  
   // Calculate how to distribute tasks evenly
-  const avgTasksPerDay = totalTasks / totalDays;
-  const baseTasksPerDay = Math.floor(avgTasksPerDay);
-  const extraTasks = totalTasks % totalDays;
-
-  // Distribute tasks evenly across days
+  // If we have fewer tasks than days, distribute them evenly spaced
+  // If we have more tasks than days, distribute them evenly across all days
   let currentTaskIndex = 0;
-  for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
-    // Calculate how many tasks this day should get
-    const tasksForThisDay = baseTasksPerDay + (dayIndex < extraTasks ? 1 : 0);
-
-    // Add tasks to this day
-    for (let i = 0; i < tasksForThisDay && currentTaskIndex < allTasks.length; i += 1) {
-      buckets[dayIndex].push(allTasks[currentTaskIndex].task);
+  
+  if (totalTasks <= totalDays) {
+    // Fewer tasks than days - distribute evenly spaced across the timeline
+    const spacing = totalDays / totalTasks;
+    for (let i = 0; i < totalTasks; i += 1) {
+      const dayIndex = Math.min(Math.floor(i * spacing), totalDays - 1);
+      buckets[dayIndex].push(allTasks[i].task);
       currentTaskIndex += 1;
       tasksAdded += 1;
     }
+  } else {
+    // More tasks than days - distribute evenly across all days
+    const avgTasksPerDay = totalTasks / totalDays;
+    const baseTasksPerDay = Math.floor(avgTasksPerDay);
+    const extraTasks = totalTasks % totalDays;
+    
+    for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
+      // Calculate how many tasks this day should get
+      const tasksForThisDay = baseTasksPerDay + (dayIndex < extraTasks ? 1 : 0);
+      
+      // Add tasks to this day
+      for (let i = 0; i < tasksForThisDay && currentTaskIndex < allTasks.length; i += 1) {
+        buckets[dayIndex].push(allTasks[currentTaskIndex].task);
+        currentTaskIndex += 1;
+        tasksAdded += 1;
+      }
+    }
   }
-
+  
   // Ensure all remaining tasks are added (safety check)
   while (currentTaskIndex < allTasks.length) {
     // Find day with least tasks
     let bestDayIndex = 0;
     let minTasks = buckets[0].length;
-
+    
     for (let d = 0; d < totalDays; d += 1) {
       if (buckets[d].length < minTasks) {
         minTasks = buckets[d].length;
         bestDayIndex = d;
       }
     }
-
+    
     buckets[bestDayIndex].push(allTasks[currentTaskIndex].task);
     currentTaskIndex += 1;
     tasksAdded += 1;
   }
-
+  
   console.log(`allocateTasksToDays: Added ${tasksAdded} tasks to buckets (expected ${totalTasks})`);
 
   // Verify all tasks are included (safety check)
@@ -209,14 +223,14 @@ const allocateTasksToDays = (tasks, totalDays) => {
       // Add missing task to the day with least tasks
       let bestDayIndex = 0;
       let minTasks = buckets[0].length;
-
+      
       for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
         if (buckets[dayIndex].length < minTasks) {
           minTasks = buckets[dayIndex].length;
           bestDayIndex = dayIndex;
         }
       }
-
+      
       buckets[bestDayIndex].push(task);
     }
   });
@@ -226,7 +240,7 @@ const allocateTasksToDays = (tasks, totalDays) => {
   if (totalAllocated !== tasks.length) {
     console.error(`CRITICAL: Task allocation mismatch! ${totalAllocated} allocated vs ${tasks.length} total tasks`);
     console.error(`Courses: ${tasksByCourse.map(c => `${c.course} (${c.tasks.length} tasks)`).join(', ')}`);
-
+    
     // Emergency: add all remaining tasks to ensure nothing is lost
     const finalAllocatedKeys = new Set();
     buckets.forEach((bucket) => {
@@ -234,7 +248,7 @@ const allocateTasksToDays = (tasks, totalDays) => {
         finalAllocatedKeys.add(`${task.course || task.focus}-${task.lesson}`);
       });
     });
-
+    
     // Find all missing tasks and add them
     const missingTasks = [];
     tasks.forEach((task) => {
@@ -243,23 +257,23 @@ const allocateTasksToDays = (tasks, totalDays) => {
         missingTasks.push(task);
       }
     });
-
+    
     // Add missing tasks to days with least tasks
     missingTasks.forEach((task) => {
       let bestDayIndex = 0;
       let minTasks = buckets[0].length;
-
+      
       for (let dayIndex = 0; dayIndex < totalDays; dayIndex += 1) {
         if (buckets[dayIndex].length < minTasks) {
           minTasks = buckets[dayIndex].length;
           bestDayIndex = dayIndex;
         }
       }
-
+      
       buckets[bestDayIndex].push(task);
       console.warn(`Added missing task: ${task.course || task.focus} - ${task.lesson} to day ${bestDayIndex}`);
     });
-
+    
     // Final verification
     const finalTotal = buckets.reduce((sum, bucket) => sum + bucket.length, 0);
     if (finalTotal !== tasks.length) {
@@ -295,15 +309,39 @@ const buildBufferEntry = ({ planId, iso, label, dayIndex, programName }) => {
 };
 
 export const distributeTasks = (tasks, startDate, endDate, planId, programName) => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  // Parse dates correctly - use local time to avoid timezone issues
+  // Parse YYYY-MM-DD format as local date (not UTC)
+  let start, end;
+  
+  if (typeof startDate === 'string' && startDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    // Parse as local date to avoid timezone shift
+    const [year, month, day] = startDate.split('-').map(Number);
+    start = new Date(year, month - 1, day);
+  } else {
+    start = new Date(startDate);
+  }
+  
+  if (typeof endDate === 'string' && endDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    // Parse as local date to avoid timezone shift
+    const [year, month, day] = endDate.split('-').map(Number);
+    end = new Date(year, month - 1, day);
+  } else {
+    end = new Date(endDate);
+  }
+  
+  // Calculate total days correctly
   const totalDays = Math.max(1, Math.floor((end - start) / DAY_IN_MS) + 1);
   const schedule = [];
-
+  
+  // Verify dates match input
+  const startISO = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+  const endISO = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+  
   console.log(`distributeTasks: Starting distribution of ${tasks.length} tasks across ${totalDays} days (${startDate} to ${endDate})`);
-
+  console.log(`distributeTasks: Parsed dates - start: ${startISO}, end: ${endISO}, totalDays: ${totalDays}`);
+  
   const dayBuckets = allocateTasksToDays(tasks, totalDays);
-
+  
   // Verify buckets before creating schedule
   const totalInBuckets = dayBuckets.reduce((sum, bucket) => sum + bucket.length, 0);
   console.log(`distributeTasks: Buckets contain ${totalInBuckets} tasks (expected ${tasks.length})`);
@@ -350,7 +388,7 @@ export const distributeTasks = (tasks, startDate, endDate, planId, programName) 
     const lastDate = new Date(start.getTime() + lastDayIndex * DAY_IN_MS);
     const lastIso = lastDate.toISOString().split("T")[0];
     const lastLabel = lastDate.toLocaleString("en-US", { month: "short", day: "numeric" });
-
+    
     missingTasks.forEach((task, index) => {
       schedule.push({
         ...task,
@@ -384,24 +422,24 @@ export const generateCustomPlan = ({ programName, courses, startDate, endDate, p
     modules: Math.max(1, Number(course.modules) || 1),
     id: course.id || generateId(`course-${index}`),
   }));
-
+  
   // Create all modules from all courses
   const tasks = createModuleBank(normalizedCourses);
-
+  
   // Log for debugging
   const totalModules = normalizedCourses.reduce((sum, course) => sum + (course.included !== false ? Number(course.modules) || 1 : 0), 0);
   console.log(`Generating plan: ${normalizedCourses.length} courses, ${totalModules} total modules, ${tasks.length} tasks created`);
-
+  
   // Distribute all tasks across dates
   const entries = distributeTasks(tasks, startDate, endDate, finalId, cleanName);
-
+  
   // Verify final count
   if (entries.length !== tasks.length) {
     console.error(`WARNING: Entry count mismatch! ${entries.length} entries vs ${tasks.length} tasks`);
   } else {
     console.log(`✓ All ${tasks.length} modules successfully distributed across ${entries.length} schedule entries`);
   }
-
+  
   const summary = normalizedCourses.map((course) => course.name?.trim()).filter(Boolean).slice(0, 3).join(" • ");
 
   return {
