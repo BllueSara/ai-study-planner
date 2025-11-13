@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PlanCard from "./components/PlanCard";
-import { loadPlans, calculatePlanStats } from "./utils/planUtils";
+import { loadPlans, savePlans, calculatePlanStats } from "./utils/planUtils";
 
 const Home = () => {
   const navigate = useNavigate();

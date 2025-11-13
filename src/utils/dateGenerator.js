@@ -2,6 +2,7 @@
 export const generateDates = (startDate, durationWeeks, lessons) => {
     const result = [];
     let currentDate = new Date(startDate);
+    const totalDays = durationWeeks * 7;
 
     for (let i = 0; i < lessons.length; i++) {
         const lesson = { ...lessons[i] };
