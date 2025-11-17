@@ -24,11 +24,35 @@ const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave 
   const participantsChannelRef = useRef(null);
   const lastUpdateTimeRef = useRef(Date.now());
   const sessionRef = useRef(session);
+  const previousStatusRef = useRef(status);
   
   // Keep sessionRef in sync with session state
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  // Play sound when session ends
+  const playEndSound = () => {
+    try {
+      // Use your custom sound file from public folder
+      // Place your audio file in the public folder and update the filename here
+      const audio = new Audio('/session-end-sound.mp3');
+      audio.volume = 0.7; // Adjust volume (0.0 to 1.0)
+      audio.play().catch(error => {
+        console.error("Error playing sound:", error);
+      });
+    } catch (error) {
+      console.error("Error playing sound:", error);
+    }
+  };
+
+  // Monitor status changes and play sound when session ends
+  useEffect(() => {
+    if (previousStatusRef.current !== "ended" && status === "ended") {
+      playEndSound();
+    }
+    previousStatusRef.current = status;
+  }, [status]);
 
   // Calculate remaining time based on session state
   const calculateRemainingTime = (sessionData) => {
