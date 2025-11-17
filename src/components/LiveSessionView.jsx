@@ -35,14 +35,35 @@ const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave 
   const playEndSound = () => {
     try {
       // Use your custom sound file from public folder
-      // Place your audio file in the public folder and update the filename here
-      const audio = new Audio('/session-end-sound.mp3');
+      const audio = new Audio('/session-end-sound.m4a');
       audio.volume = 0.7; // Adjust volume (0.0 to 1.0)
-      audio.play().catch(error => {
-        console.error("Error playing sound:", error);
-      });
+      
+      // Preload the audio to avoid issues
+      audio.preload = 'auto';
+      
+      // Handle play promise with better error handling
+      const playPromise = audio.play();
+      
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            // Audio started playing successfully
+            console.log('Session end sound played successfully');
+          })
+          .catch(error => {
+            // Auto-play was prevented or other error occurred
+            // This is expected in some browsers due to autoplay policies
+            // Silently fail - the user can still see the visual indication
+            if (error.name !== 'NotAllowedError' && error.name !== 'NotSupportedError') {
+              console.warn('Could not play session end sound:', error.message);
+            }
+          });
+      }
     } catch (error) {
-      console.error("Error playing sound:", error);
+      // Silently handle errors - visual indication is more important
+      if (error.name !== 'NotAllowedError' && error.name !== 'NotSupportedError') {
+        console.warn('Error initializing sound:', error.message);
+      }
     }
   };
 
