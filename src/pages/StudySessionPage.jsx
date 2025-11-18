@@ -17,6 +17,8 @@ const StudySessionPage = () => {
   const [currentSession, setCurrentSession] = useState(null);
   const [userId, setUserId] = useState(null);
   const [isLeader, setIsLeader] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
 
   // Load session from localStorage on mount
   useEffect(() => {
@@ -71,6 +73,7 @@ const StudySessionPage = () => {
   };
 
   const handleCreateSession = async ({ sessionName, duration, leaderName }) => {
+    setIsCreating(true);
     try {
       const result = await createSession(sessionName, duration, leaderName);
       const session = await getSession(result.sessionId);
@@ -98,10 +101,13 @@ const StudySessionPage = () => {
     } catch (error) {
       console.error("Session error:", error);
       alert(error.message || "Failed to create session");
+    } finally {
+      setIsCreating(false);
     }
   };
 
   const handleJoinSession = async ({ sessionId, participantName }) => {
+    setIsJoining(true);
     try {
       const result = await joinSession(sessionId, participantName);
       const session = await getSession(result.sessionId);
@@ -129,6 +135,8 @@ const StudySessionPage = () => {
     } catch (error) {
       console.error("Session error:", error);
       alert(error.message || "Failed to join session");
+    } finally {
+      setIsJoining(false);
     }
   };
 
@@ -250,6 +258,7 @@ const StudySessionPage = () => {
         <CreateSessionModal
           onClose={() => setShowCreateModal(false)}
           onCreate={handleCreateSession}
+          isLoading={isCreating}
         />
       )}
 
@@ -257,6 +266,7 @@ const StudySessionPage = () => {
         <JoinSessionModal
           onClose={() => setShowJoinModal(false)}
           onJoin={handleJoinSession}
+          isLoading={isJoining}
         />
       )}
     </div>
