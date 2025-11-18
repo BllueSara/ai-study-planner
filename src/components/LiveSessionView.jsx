@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import {
   subscribeToSession,
-  subscribeToParticipants,
   unsubscribe,
   getSession,
   getParticipants,
@@ -10,6 +9,7 @@ import {
   resetTimer,
   endSession,
   updateParticipantTime,
+  startPolling,
 } from "../utils/sessionService";
 
 const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave }) => {
@@ -21,10 +21,11 @@ const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave 
   
   const timerIntervalRef = useRef(null);
   const sessionChannelRef = useRef(null);
-  const participantsChannelRef = useRef(null);
+  const pollingRef = useRef(null);
   const lastUpdateTimeRef = useRef(Date.now());
   const sessionRef = useRef(session);
   const previousStatusRef = useRef(status);
+  const useRealtimeRef = useRef(true);
   
   // Keep sessionRef in sync with session state
   useEffect(() => {
@@ -131,30 +132,9 @@ const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave 
     };
   }, [status, session, sessionId, userId, isLeader]);
 
-  // Subscribe to session updates
+  // Subscribe to session updates with polling fallback
   useEffect(() => {
     if (!sessionId) return;
-
-    // Subscribe to session changes
-    sessionChannelRef.current = subscribeToSession(sessionId, async (payload) => {
-      try {
-        const updatedSession = await getSession(sessionId);
-        const newRemainingTime = calculateRemainingTime(updatedSession);
-        
-        setSession(updatedSession);
-        setRemainingTime(newRemainingTime);
-        setStatus(updatedSession.status);
-        lastUpdateTimeRef.current = Date.now();
-      } catch (error) {
-        console.error("Error updating session:", error);
-        setError(error.message || "Failed to update session");
-      }
-    });
-
-    // Subscribe to participant changes
-    participantsChannelRef.current = subscribeToParticipants(sessionId, (participants) => {
-      setLeaderboard(participants);
-    });
 
     // Initial fetch
     const loadSession = async () => {
@@ -175,12 +155,93 @@ const LiveSessionView = ({ sessionId, userId, isLeader, initialSession, onLeave 
 
     loadSession();
 
+    // Try to use Realtime first
+    if (useRealtimeRef.current) {
+      try {
+        // Subscribe to session changes (combined subscription handles both session and participants)
+        // This uses a single channel to minimize connections and avoid the 30 connection limit
+        sessionChannelRef.current = subscribeToSession(sessionId, async (payload) => {
+          try {
+            // Handle participants update
+            if (payload.type === 'participants') {
+              setLeaderboard(payload.data);
+              return;
+            }
+
+            // Handle session update - also fetch participants to keep leaderboard in sync
+            const updatedSession = await getSession(sessionId);
+            const participants = await getParticipants(sessionId);
+            const newRemainingTime = calculateRemainingTime(updatedSession);
+            
+            setSession(updatedSession);
+            setRemainingTime(newRemainingTime);
+            setStatus(updatedSession.status);
+            setLeaderboard(participants);
+            lastUpdateTimeRef.current = Date.now();
+          } catch (error) {
+            console.error("Error updating session:", error);
+            // Fallback to polling if realtime fails
+            if (useRealtimeRef.current) {
+              console.warn("Realtime failed, switching to polling");
+              useRealtimeRef.current = false;
+              if (sessionChannelRef.current) {
+                unsubscribe(sessionChannelRef.current);
+                sessionChannelRef.current = null;
+              }
+              startPollingFallback();
+            }
+          }
+        });
+
+        // Check channel status after a delay
+        setTimeout(() => {
+          if (sessionChannelRef.current) {
+            const channel = sessionChannelRef.current;
+            // If channel is not properly subscribed, fallback to polling
+            if (channel.state !== 'joined' && channel.state !== 'joining') {
+              console.warn("Realtime channel not connected, switching to polling");
+              useRealtimeRef.current = false;
+              if (sessionChannelRef.current) {
+                unsubscribe(sessionChannelRef.current);
+                sessionChannelRef.current = null;
+              }
+              startPollingFallback();
+            }
+          }
+        }, 5000);
+      } catch (error) {
+        console.error("Failed to setup Realtime, using polling:", error);
+        useRealtimeRef.current = false;
+        startPollingFallback();
+      }
+    } else {
+      // Use polling directly
+      startPollingFallback();
+    }
+
+    // Polling fallback function
+    function startPollingFallback() {
+      if (pollingRef.current) return; // Already polling
+      
+      console.log("Starting polling fallback for session:", sessionId);
+      pollingRef.current = startPolling(sessionId, ({ session: sessionData, participants }) => {
+        const newRemainingTime = calculateRemainingTime(sessionData);
+        setSession(sessionData);
+        setRemainingTime(newRemainingTime);
+        setStatus(sessionData.status);
+        setLeaderboard(participants);
+        lastUpdateTimeRef.current = Date.now();
+      }, 3000); // Poll every 3 seconds
+    }
+
     return () => {
       if (sessionChannelRef.current) {
         unsubscribe(sessionChannelRef.current);
+        sessionChannelRef.current = null;
       }
-      if (participantsChannelRef.current) {
-        unsubscribe(participantsChannelRef.current);
+      if (pollingRef.current) {
+        pollingRef.current.stop();
+        pollingRef.current = null;
       }
     };
   }, [sessionId]);
