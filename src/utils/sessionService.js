@@ -80,6 +80,27 @@ export const joinSession = async (sessionId, participantName) => {
     throw new Error('Session has ended');
   }
 
+  // Check current participant count to avoid hitting connection limits
+  const { count: participantCount, error: countError } = await supabase
+    .from('participants')
+    .select('*', { count: 'exact', head: true })
+    .eq('session_id', normalizedSessionId)
+    .eq('status', 'active');
+
+  if (countError) {
+    console.error('Error counting participants:', countError);
+  }
+  
+  // Warn if approaching limit (25 to leave some buffer)
+  if (participantCount >= 25) {
+    console.warn(`Session has ${participantCount} participants. Approaching Supabase Realtime limit (30 connections).`);
+  }
+  
+  // Hard limit at 30 participants
+  if (participantCount >= 30) {
+    throw new Error('Session is full. Maximum 30 participants allowed due to connection limits.');
+  }
+
   const normalizedName = participantName?.trim();
   if (!normalizedName) {
     throw new Error('Invalid participant name');
@@ -355,7 +376,8 @@ export const updateParticipantTime = async (sessionId, userId, timeSpent) => {
     .eq('user_id', userId);
 };
 
-// Subscribe to session updates
+// Subscribe to both session and participants updates in a single channel
+// This reduces connection count by 50% to avoid Supabase's 30 connection limit
 export const subscribeToSession = (sessionId, callback) => {
   const normalizedSessionId = sessionId?.toUpperCase().trim();
   if (!normalizedSessionId) return null;
@@ -374,18 +396,45 @@ export const subscribeToSession = (sessionId, callback) => {
         callback(payload);
       }
     )
-    .subscribe();
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'participants',
+        filter: `session_id=eq.${normalizedSessionId}`,
+      },
+      async (payload) => {
+        // Fetch updated leaderboard when participants change
+        const participants = await getParticipants(normalizedSessionId);
+        callback({ type: 'participants', data: participants });
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`Subscribed to session: ${normalizedSessionId}`);
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error(`Channel error for session: ${normalizedSessionId}`);
+      } else if (status === 'TIMED_OUT') {
+        console.warn(`Channel timeout for session: ${normalizedSessionId}`);
+      } else if (status === 'CLOSED') {
+        console.warn(`Channel closed for session: ${normalizedSessionId}`);
+      }
+    });
 
   return channel;
 };
 
-// Subscribe to participants updates
+// Subscribe to participants updates (kept for backward compatibility)
+// Note: This creates a separate channel but we'll optimize it
 export const subscribeToParticipants = (sessionId, callback) => {
   const normalizedSessionId = sessionId?.toUpperCase().trim();
   if (!normalizedSessionId) return null;
 
+  // Use the same channel name as session to share connections when possible
+  // Supabase will reuse the connection if the channel name matches
   const channel = supabase
-    .channel(`participants:${normalizedSessionId}`)
+    .channel(`session:${normalizedSessionId}`)
     .on(
       'postgres_changes',
       {
@@ -412,3 +461,36 @@ export const unsubscribe = (channel) => {
   }
 };
 
+// Polling fallback when Realtime connections fail
+export const startPolling = (sessionId, onUpdate, interval = 3000) => {
+  let pollingInterval = null;
+  let isActive = true;
+
+  const poll = async () => {
+    if (!isActive) return;
+    
+    try {
+      const sessionData = await getSession(sessionId);
+      const participants = await getParticipants(sessionId);
+      onUpdate({ session: sessionData, participants });
+    } catch (error) {
+      console.error('Polling error:', error);
+    }
+  };
+
+  // Initial poll
+  poll();
+  
+  // Set up interval
+  pollingInterval = setInterval(poll, interval);
+
+  return {
+    stop: () => {
+      isActive = false;
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+    }
+  };
+};
